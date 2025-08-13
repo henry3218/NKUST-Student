@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>NKUST 新生/學生會手冊｜可翻閱版</title>
+<meta name="color-scheme" content="light dark" />
+<style>
+  :root{
+    --bg: #0b0c0f;
+    --fg: #f2f2f2;
+    --muted:#a4a6ad;
+    --accent:#67b7ff;
+    --bar:#13151a;
+    --shadow: 0 8px 30px rgba(0,0,0,.35);
+  }
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--fg);
+    font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  #app{display:flex; flex-direction:column; height:100%;}
+  header{
+    display:flex; align-items:center; gap:.75rem;
+    padding: .6rem .9rem; background:var(--bar); position:sticky; top:0; z-index:10;
+    box-shadow: 0 1px 0 rgba(255,255,255,.06), 0 8px 16px rgba(0,0,0,.25);
+  }
+  header .title{font-weight:700; letter-spacing:.3px; white-space:nowrap}
+  header .grow{flex:1}
+  .btn{
+    appearance:none; border:0; border-radius:.6rem; padding:.55rem .8rem; cursor:pointer;
+    background:#1a1d24; color:#e9e9e9; font-weight:600;
+  }
+  .btn[disabled]{opacity:.35; cursor:not-allowed}
+  .btn.icon{padding:.5rem .6rem}
+  .btn.primary{background:linear-gradient(180deg,#2b6fff,#0a53da)}
+  .btn.ghost{background:transparent; color:var(--muted)}
+  .btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .sep{width:1px; height:22px; background:#262a33; margin:0 .25rem}
+
+  #viewer{
+    position:relative; flex:1; display:flex; align-items:center; justify-content:center;
+    overflow:hidden; user-select:none; touch-action:pan-y pinch-zoom;
+  }
+  .spread{display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; width:min(96vw,1400px); padding:1.2rem}
+  .page{
+    position:relative; background:#0e1016; border-radius:.8rem; box-shadow:var(--shadow);
+    overflow:hidden; display:flex; align-items:center; justify-content:center;
+  }
+  .page img{
+    max-width:100%; max-height:calc(100vh - 190px);
+    display:block; object-fit:contain; transform:translateZ(0);
+  }
+  .page .pgno{
+    position:absolute; right:.6rem; bottom:.5rem; font-size:.8rem; color:#cfd3dc;
+    background:rgba(0,0,0,.45); padding:.2rem .5rem; border-radius:.4rem; backdrop-filter:blur(6px)
+  }
+
+  /* zoom mode */
+  .zoomed .page img{cursor:grab}
+  .zoomed .page img:active{cursor:grabbing}
+
+  /* thumbnails */
+  footer{
+    background:linear-gradient(180deg, rgba(0,0,0,.0), rgba(0,0,0,.35));
+    padding:.5rem .75rem .8rem; position:sticky; bottom:0; z-index:10;
+  }
+  #thumbs{display:flex; gap:.6rem; overflow:auto; scrollbar-width:thin; padding:.2rem}
+  .thumb{
+    flex:0 0 auto; position:relative; border-radius:.5rem; overflow:hidden;
+    border:2px solid transparent; background:#11141a;
+  }
+  .thumb img{display:block; width:120px; height:80px; object-fit:cover}
+  .thumb.active{border-color:#4da3ff}
+  .thumb .label{
+    position:absolute; left:.3rem; bottom:.25rem; font-size:.7rem; color:#fff;
+    background:rgba(0,0,0,.45); padding:.15rem .35rem; border-radius:.35rem
+  }
+
+  /* small screens show single page */
+  @media (max-width: 900px){
+    .spread{grid-template-columns:1fr; width:96vw}
+    .page img{max-height:calc(100vh - 230px)}
+  }
+
+  /* print to PDF: one page per sheet */
+  @media print{
+    header,footer{display:none !important}
+    #viewer{overflow:visible}
+    .spread{display:block; width:auto; padding:0}
+    .page{break-inside:avoid; box-shadow:none; border-radius:0; margin:0 0 1rem 0}
+    .page img{max-height:none; width:100%}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title">NKUST 新生/學生會手冊</div>
+    <div class="sep"></div>
+    <button class="btn icon" id="prev" aria-label="上一頁">⬅︎</button>
+    <button class="btn icon" id="next" aria-label="下一頁">➡︎</button>
+    <div class="sep"></div>
+    <span id="info" class="muted" style="min-width:7.5rem;">第 <b id="cur">1</b> / <b id="total">—</b> 頁</span>
+    <div class="grow"></div>
+    <button class="btn" id="rotate">旋轉90°</button>
+    <button class="btn" id="zoom">縮放</button>
+    <button class="btn" id="thumbToggle">縮圖</button>
+    <button class="btn ghost" id="share">分享</button>
+    <button class="btn ghost" id="fs">全螢幕</button>
+    <button class="btn primary" id="print">列印 / 存 PDF</button>
+  </header>
+
+  <main id="viewer">
+    <div class="spread" id="spread">
+      <!-- JS 會插入頁面 -->
+    </div>
+  </main>
+
+  <footer id="barThumbs">
+    <div id="thumbs" aria-label="縮圖清單"></div>
+  </footer>
+</div>
+
+<script>
+  // ====== 設定：把你的圖片列在這裡（順序就是翻頁順序） ======
+  // 圖片請放在 /pages/ 底下；若檔名不同，改這裡即可。
+  const PAGES = [
+    { src:"pages/01-學籍資料.jpg", alt:"新生必讀：學籍資料填寫 01" },
+    { src:"pages/02-學雜費繳納.jpg", alt:"學雜費繳納 02" },
+    { src:"pages/03-宿舍與網路.jpg", alt:"宿舍相關與網路 03" },
+    { src:"pages/04-新生重要日程.jpg", alt:"新生重要日程 04" },
+    { src:"pages/05-屬性社團_介紹.jpg", alt:"屬性社團介紹 05" },
+    { src:"pages/06-社團嘉年華.jpg", alt:"社團嘉年華 06" },
+    { src:"pages/07-學生會大哉問-會費QA.jpg", alt:"學生會大哉問：會費 Q&A 07" },
+    { src:"pages/08-繳交學生會費_回饋.jpg", alt:"繳交學生會費可以獲得什麼回饋？ 08" },
+    { src:"pages/09-學生會_組織架構.jpg", alt:"學生會組織架構 09" },
+
+    // 橫向目錄：預設加 90° 旋轉
+    { src:"pages/10-SA大哉問_目錄封面.jpg", alt:"SA 大哉問／目錄", rotate: 90 },
+
+    // 你補充的新頁面
+    { src:"pages/10-各校區學生會辦公資訊.jpg", alt:"各校區學生會辦公資訊 10" },
+    { src:"pages/11-學生會議會_評議會.jpg",       alt:"學生議會與學生評議會介紹 11" },
+    { src:"pages/12-行政中心介紹.jpg",           alt:"行政中心介紹 12" },
+    { src:"pages/13-歷年活動.jpg",               alt:"歷年活動 13" },
+    { src:"pages/14-奶茶節_演唱會_海洋祭_評鑑.jpg", alt:"活動：奶茶節／演唱會／海洋祭／評鑑 14" },
+    { src:"pages/15-SA_QR_與常用連結.jpg",        alt:"SA & QR Code／學校常用連結 15" },
+    { src:"pages/16-封底_NKUST_Student_Association.jpg", alt:"封底 16" }
+  ];
+  // ========================================
+
+  const $ = s => document.querySelector(s);
+  const spread = $("#spread");
+  const thumbs = $("#thumbs");
+  const curEl = $("#cur");
+  const totalEl = $("#total");
+  const prevBtn = $("#prev");
+  const nextBtn = $("#next");
+  const shareBtn = $("#share");
+  const fsBtn = $("#fs");
+  const printBtn = $("#print");
+  const zoomBtn = $("#zoom");
+  const rotateBtn = $("#rotate");
+  const thumbToggle = $("#thumbToggle");
+  const barThumbs = $("#barThumbs");
+  const viewer = $("#viewer");
+
+  let pageIndex = 0;               // 以 0 起算
+  let zoomed = false;
+  let rotation = 0;                // 全域加成旋轉：0/90/180/270
+  let touchStartX = null;
+
+  totalEl.textContent = PAGES.length;
+
+  // 讀 hash (#p=)
+  const hash = new URL(document.location).hash;
+  const m = hash.match(/p=(\d+)/);
+  if(m){
+    const p = Math.max(1, Math.min(PAGES.length, parseInt(m[1],10)));
+    pageIndex = p - 1;
+  }
+
+  // 建立縮圖列
+  PAGES.forEach((p, i) => {
+    const t = document.createElement("button");
+    t.className = "thumb";
+    t.setAttribute("aria-label", `前往第 ${i+1} 頁`);
+    t.innerHTML = `<img loading="lazy" src="${p.src}" alt="${p.alt}">
+                   <span class="label">${String(i+1).padStart(2,'0')}</span>`;
+    t.addEventListener("click", () => goTo(i));
+    thumbs.appendChild(t);
+  });
+
+  // 建立頁面容器（同時渲染 1 或 2 張）
+  function render(){
+    spread.innerHTML = "";
+    const isSingle = window.matchMedia("(max-width: 900px)").matches;
+    const pagesToShow = isSingle ? [pageIndex] : [pageIndex, pageIndex+1].filter(i => i < PAGES.length);
+
+    pagesToShow.forEach((i) => {
+      const wrap = document.createElement("figure");
+      wrap.className = "page";
+      const img = document.createElement("img");
+      const baseRot = (PAGES[i].rotate || 0);                  // 單頁預設旋轉
+      img.alt = PAGES[i].alt || `第 ${i+1} 頁`;
+      img.src = PAGES[i].src;
+      img.draggable = false;
+      img.style.transform = `rotate(${(rotation + baseRot) % 360}deg)`;
+      img.addEventListener("load", () => prefetch(i+1));       // 預載下一張
+
+      // 縮放與拖曳
+      let start = null, origin = {x:0,y:0}, pos={x:0,y:0}, scale = zoomed ? 1.9 : 1;
+      function updateTransform(){
+        img.style.transition = "transform .08s ease";
+        img.style.transform = `rotate(${(rotation + baseRot) % 360}deg) translate(${pos.x}px, ${pos.y}px) scale(${scale})`;
+      }
+      img.addEventListener("dblclick", () => { zoomed = !zoomed; scale = zoomed ? 1.9 : 1; pos={x:0,y:0}; document.body.classList.toggle("zoomed", zoomed); updateTransform(); });
+      img.addEventListener("pointerdown", e => { if(!zoomed) return; start={x:e.clientX,y:e.clientY}; origin={...pos}; img.setPointerCapture(e.pointerId); });
+      img.addEventListener("pointermove", e => { if(!zoomed || !start) return; pos.x = origin.x + (e.clientX - start.x); pos.y = origin.y + (e.clientY - start.y); updateTransform(); });
+      img.addEventListener("pointerup",   () => { start=null; });
+      wrap.appendChild(img);
+
+      const tag = document.createElement("figcaption");
+      tag.className = "pgno";
+      tag.textContent = String(i+1).padStart(2,'0');
+      wrap.appendChild(tag);
+
+      // 點左/右側快速翻頁（縮放中則忽略）
+      wrap.addEventListener("click", (e)=>{
+        if(zoomed) return;
+        const rect = wrap.getBoundingClientRect();
+        const leftSide = e.clientX - rect.left < rect.width/2;
+        leftSide ? prev() : next();
+      });
+
+      spread.appendChild(wrap);
+    });
+
+    curEl.textContent = pageIndex + 1;
+    setHash(pageIndex + 1);
+    updateButtons();
+    highlightThumb();
+  }
+
+  function setHash(p){
+    const url = new URL(location.href);
+    url.hash = `p=${p}`;
+    history.replaceState(null, "", url);
+  }
+
+  function updateButtons(){
+    prevBtn.disabled = pageIndex <= 0;
+    nextBtn.disabled = pageIndex >= PAGES.length - 1;
+  }
+  function highlightThumb(){
+    [...thumbs.children].forEach((t,i)=> t.classList.toggle("active", i===pageIndex));
+  }
+
+  function goTo(i){
+    pageIndex = Math.max(0, Math.min(PAGES.length-1, i));
+    render();
+  }
+  function prev(){
+    const single = window.matchMedia("(max-width: 900px)").matches;
+    goTo(pageIndex - (single ? 1 : 2));
+  }
+  function next(){
+    const single = window.matchMedia("(max-width: 900px)").matches;
+    goTo(pageIndex + (single ? 1 : 2));
+  }
+
+  function prefetch(i){
+    if(i < PAGES.length){
+      const img = new Image();
+      img.src = PAGES[i].src;
+    }
+  }
+
+  // 事件：鍵盤、按鈕、觸控
+  prevBtn.addEventListener("click", prev);
+  nextBtn.addEventListener("click", next);
+  window.addEventListener("keydown", (e)=>{
+    if(["ArrowLeft","h","H"].includes(e.key)) prev();
+    if(["ArrowRight","l","L"," "].includes(e.key)) next();
+    if(e.key==="Home") goTo(0);
+    if(e.key==="End") goTo(PAGES.length-1);
+    if(e.key==="z" || e.key==="Z") zoomBtn.click();
+    if(e.key==="r" || e.key==="R") rotateBtn.click();
+  });
+
+  // 手機滑動
+  viewer.addEventListener("touchstart", (e)=> touchStartX = e.changedTouches[0].clientX, {passive:true});
+  viewer.addEventListener("touchend", (e)=>{
+    if(touchStartX==null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if(Math.abs(dx) > 50){ dx>0 ? prev() : next(); }
+    touchStartX = null;
+  }, {passive:true});
+
+  // 工具列功能
+  zoomBtn.addEventListener("click", ()=>{
+    zoomed = !zoomed; document.body.classList.toggle("zoomed", zoomed); render();
+  });
+  rotateBtn.addEventListener("click", ()=>{ rotation = (rotation + 90) % 360; render(); });
+  thumbToggle.addEventListener("click", ()=>{ barThumbs.style.display = (barThumbs.style.display==='none' ? '' : 'none'); });
+
+  shareBtn.addEventListener("click", async ()=>{
+    const url = location.href;
+    try{
+      if(navigator.share){
+        await navigator.share({title:document.title, url});
+      }else{
+        await navigator.clipboard.writeText(url);
+        shareBtn.textContent = "已複製連結";
+        setTimeout(()=> shareBtn.textContent="分享", 1200);
+      }
+    }catch(_){}
+  });
+
+  fsBtn.addEventListener("click", ()=>{
+    if(!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  });
+
+  printBtn.addEventListener("click", ()=> window.print());
+
+  // 視窗大小改變時保持單頁/雙頁邏輯
+  matchMedia("(max-width: 900px)").addEventListener("change", render);
+
+  // 初次渲染
+  render();
+</script>
+</body>
+</html>
